@@ -1,0 +1,315 @@
+from PIL import Image, ImageTk
+import tkinter as tk
+from tkinter import ttk, simpledialog, messagebox
+from datetime import datetime
+import json
+
+# Load the logo image
+logo_path = "/Users/alexander/Desktop/Untitled design.jpg"  # Replace with your actual path
+
+class TodoApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("To-Do List")
+        self.root.geometry("800x600")
+        self.root.config(bg="#A9DFBF")  # Set background color to green
+        
+        self.frames = {}
+        for F in (TaskPage, SchedulePage, FlashcardPage):
+            page_name = F.__name__
+            frame = F(parent=self.root, controller=self)
+            self.frames[page_name] = frame
+            frame.pack(fill="both", expand=True)
+
+        self.show_frame("TaskPage")
+
+    def show_frame(self, page_name):
+        frame = self.frames[page_name]
+        frame.tkraise()
+
+class TaskPage(tk.Frame):
+    def __init__(self, parent, controller):
+        tk.Frame.__init__(self, parent)
+        self.controller = controller
+        self.config(bg="#A9DFBF")
+
+        logo = Image.open(logo_path)
+        logo = logo.resize((100, 100), Image.Resampling.LANCZOS)
+        self.logo_image = ImageTk.PhotoImage(logo)
+        logo_label = tk.Label(self, image=self.logo_image, bg="#A9DFBF")  
+        logo_label.pack(side="top", pady=10)
+
+        # Add event label
+        add_event_label = tk.Label(self, text="Add Event", font=("Arial", 24, "bold"), bg="#A9DFBF")
+        add_event_label.pack(pady=10)
+
+        # Header labels
+        headers_frame = tk.Frame(self, bg="#A9DFBF")
+        headers_frame.pack(fill="x")
+
+        tk.Label(headers_frame, text="Task", font=("Arial", 18, "bold"), bg="#A9DFBF").pack(side="left", padx=10)
+        tk.Label(headers_frame, text="Complete", font=("Arial", 18, "bold"), bg="#A9DFBF").pack(side="left", padx=10)
+        tk.Label(headers_frame, text="Edit", font=("Arial", 18, "bold"), bg="#A9DFBF").pack(side="left", padx=10)
+        tk.Label(headers_frame, text="Delete", font=("Arial", 18, "bold"), bg="#A9DFBF").pack(side="left", padx=10)
+
+        # Task list frame
+        self.tasks_frame = tk.Frame(self, bg="#A9DFBF")
+        self.tasks_frame.pack(fill="both", expand=True)
+
+        self.canvas = tk.Canvas(self.tasks_frame, bg="#A9DFBF", highlightthickness=0)
+        self.scrollbar = ttk.Scrollbar(self.tasks_frame, orient="vertical", command=self.canvas.yview)
+        self.scrollable_frame = ttk.Frame(self.canvas)
+
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.canvas.configure(
+                scrollregion=self.canvas.bbox("all")
+            )
+        )
+
+        self.canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.canvas.configure(yscrollcommand=self.scrollbar.set)
+
+        self.canvas.pack(side="left", fill="both", expand=True)
+        self.scrollbar.pack(side="right", fill="y")
+
+
+        # Add task input field and button
+        self.task_entry = tk.Entry(self, font=("Arial", 16))
+        self.task_entry.pack(pady=10, padx=20, fill=tk.X)
+        self.task_entry.bind("<Return>", lambda event: self.add_task())
+
+        self.add_task_button = ttk.Button(self, text="Add Task", command=self.add_task, style="Accent.TButton")
+        self.add_task_button.pack(pady=10)
+
+        self.sort_button = ttk.Button(self, text="Sort Tasks", command=self.sort_tasks, style="Accent.TButton")
+        self.sort_button.pack(pady=10)
+
+        self.schedule_button = ttk.Button(self, text="View Schedule", command=lambda: controller.show_frame("SchedulePage"), style="Accent.TButton")
+        self.schedule_button.pack(pady=10)
+
+        self.flashcard_button = ttk.Button(self, text="Flashcards", command=lambda: controller.show_frame("FlashcardPage"), style="Accent.TButton")
+        self.flashcard_button.pack(pady=10)
+
+        self.tasks = []
+        self.completed_tasks = []
+
+        self.style = ttk.Style()
+        self.style.configure("Accent.TButton", font=("Arial", 14, "bold"), background="#4CAF50", foreground="white")
+        self.style.configure("TLabel", font=("Arial", 14), background="#A9DFBF")
+        
+        self.load_tasks()
+
+    def add_task(self):
+        task = self.task_entry.get().strip()
+        if task:
+            due_date = simpledialog.askstring("Due Date", "Enter due date (YYYY-MM-DD):", parent=self)
+            try:
+                due_date_obj = datetime.strptime(due_date, "%Y-%m-%d")
+                self.tasks.append({
+                    "task": task,
+                    "priority": "Medium",
+                    "due_date": due_date,
+                    "created": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                })
+                self.task_entry.delete(0, tk.END)
+                self.update_tasks()
+                self.save_tasks()
+            except ValueError:
+                messagebox.showerror("Invalid Date", "Please enter a valid date in the format YYYY-MM-DD")
+
+    def update_tasks(self):
+        for widget in self.scrollable_frame.winfo_children():
+            widget.destroy()
+
+        # Active tasks
+        for task_data in self.tasks:
+            task_frame = tk.Frame(self.scrollable_frame, bg="#A9DFBF", pady=5)
+            task_frame.pack(fill="x", pady=5)
+
+            task_label = tk.Label(task_frame, text=f"{task_data['task']} (Priority: {task_data['priority']}, Due: {task_data['due_date']})", font=("Arial", 16), bg="#A9DFBF")
+            task_label.pack(side="left", padx=10, fill=tk.X, expand=True)
+
+            complete_button = ttk.Button(task_frame, text="Complete", command=lambda t=task_data: self.complete_task(t), style="Complete.TButton")
+            complete_button.pack(side="right", padx=10)
+
+            edit_button = ttk.Button(task_frame, text="Edit", command=lambda t=task_data: self.edit_task(t), style="Edit.TButton")
+            edit_button.pack(side="right", padx=10)
+
+            delete_button = ttk.Button(task_frame, text="Delete", command=lambda t=task_data: self.delete_task(t), style="Delete.TButton")
+            delete_button.pack(side="right", padx=10)
+
+        # Completed tasks
+        if self.completed_tasks:
+            completed_label = tk.Label(self.scrollable_frame, text="Completed Tasks", font=("Arial", 18, "bold"), bg="#A9DFBF")
+            completed_label.pack(pady=5)
+            for task_data in self.completed_tasks:
+                task_frame = tk.Frame(self.scrollable_frame, bg="#A9DFBF", pady=5)
+                task_frame.pack(fill="x", pady=5)
+
+                task_label = tk.Label(task_frame, text=f"{task_data['task']} (Priority: {task_data['priority']}, Completed: {task_data['completed']})", font=("Arial", 16), bg="#A9DFBF")
+                task_label.pack(side="left", padx=10, fill=tk.X, expand=True)
+
+                delete_button = ttk.Button(task_frame, text="Delete", command=lambda t=task_data: self.delete_task(t), style="Delete.TButton")
+                delete_button.pack(side="right", padx=10)
+
+        self.style.configure("Complete.TButton", font=("Arial", 12), background="#4CAF50", foreground="white")
+        self.style.configure("Delete.TButton", font=("Arial", 12), background="#f44336", foreground="white")
+        self.style.configure("Edit.TButton", font=("Arial", 12), background="#FFA500", foreground="white")
+
+    def complete_task(self, task_data):
+        if task_data in self.tasks:
+            self.tasks.remove(task_data)
+            task_data["completed"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            self.completed_tasks.append(task_data)
+            self.update_tasks()
+            self.save_tasks()
+
+    def delete_task(self, task_data):
+        if task_data in self.tasks:
+            self.tasks.remove(task_data)
+        elif task_data in self.completed_tasks:
+            self.completed_tasks.remove(task_data)
+        self.update_tasks()
+        self.save_tasks()
+
+    def edit_task(self, task_data):
+        if task_data in self.tasks:
+            new_task = simpledialog.askstring("Edit Task", "Update the task:", initialvalue=task_data["task"], parent=self)
+            if new_task:
+                task_data["task"] = new_task
+                priority = simpledialog.askstring("Edit Priority", "Update the priority (Low, Medium, High):", initialvalue=task_data["priority"], parent=self)
+                if priority in ["Low", "Medium", "High"]:
+                    task_data["priority"] = priority
+                else:
+                    task_data["priority"] = "Medium"
+                
+                due_date = simpledialog.askstring("Edit Due Date", "Update the due date (YYYY-MM-DD):", initialvalue=task_data["due_date"], parent=self)
+                try:
+                    datetime.strptime(due_date, "%Y-%m-%d")
+                    task_data["due_date"] = due_date
+                except ValueError:
+                    messagebox.showerror("Invalid Date", "Please enter a valid date in the format YYYY-MM-DD")
+
+                self.update_tasks()
+                self.save_tasks()
+
+    def sort_tasks(self):
+        self.tasks.sort(key=lambda x: (x["priority"], x["due_date"]))
+        self.update_tasks()
+
+    def save_tasks(self):
+        with open("tasks.json", "w") as file:
+            json.dump({"tasks": self.tasks, "completed_tasks": self.completed_tasks}, file)
+
+    def load_tasks(self):
+        try:
+            with open("tasks.json", "r") as file:
+                data = json.load(file)
+                self.tasks = data["tasks"]
+                self.completed_tasks = data["completed_tasks"]
+                self.update_tasks()
+        except FileNotFoundError:
+            pass
+
+class SchedulePage(tk.Frame):
+    def __init__(self, parent, controller):
+        tk.Frame.__init__(self, parent)
+        self.controller = controller
+        self.config(bg="#A9DFBF")
+        
+        label = tk.Label(self, text="Task Schedule", font=("Arial", 24, "bold"), bg="#A9DFBF")
+        label.pack(pady=10)
+
+        self.schedule_list = tk.Listbox(self, font=("Arial", 18))
+        self.schedule_list.pack(pady=10, padx=20, fill=tk.BOTH, expand=True)
+
+        self.update_schedule_button = ttk.Button(self, text="Update Schedule", command=self.update_schedule, style="Accent.TButton")
+        self.update_schedule_button.pack(pady=10)
+
+        self.back_button = ttk.Button(self, text="Back to Tasks", command=lambda: controller.show_frame("TaskPage"), style="Accent.TButton")
+        self.back_button.pack(pady=10)
+
+        self.update_schedule()
+
+    def update_schedule(self):
+        self.schedule_list.delete(0, tk.END)
+        tasks = self.controller.frames["TaskPage"].tasks
+        tasks.sort(key=lambda x: x["due_date"])
+        for task in tasks:
+            self.schedule_list.insert(tk.END, f"{task['task']} - Due: {task['due_date']} - Priority: {task['priority']}")
+
+class FlashcardPage(tk.Frame):
+    def __init__(self, parent, controller):
+        tk.Frame.__init__(self, parent)
+        self.controller = controller
+        self.config(bg="#A9DFBF")
+        
+        label = tk.Label(self, text="Flashcards", font=("Arial", 24, "bold"), bg="#A9DFBF")
+        label.pack(pady=10)
+
+        self.flashcards = []
+        self.current_flashcard = None
+
+        self.flashcard_front = tk.StringVar()
+        self.flashcard_back = tk.StringVar()
+
+        self.front_entry = tk.Entry(self, textvariable=self.flashcard_front, font=("Arial", 18))
+        self.front_entry.pack(pady=5, padx=20, fill=tk.X)
+        self.back_entry = tk.Entry(self, textvariable=self.flashcard_back, font=("Arial", 18))
+        self.back_entry.pack(pady=5, padx=20, fill=tk.X)
+
+        self.add_flashcard_button = ttk.Button(self, text="Add Flashcard", command=self.add_flashcard, style="Accent.TButton")
+        self.add_flashcard_button.pack(pady=5)
+
+        self.show_flashcard_button = ttk.Button(self, text="Show Flashcard", command=self.show_flashcard, style="Accent.TButton")
+        self.show_flashcard_button.pack(pady=5)
+
+        self.flashcard_label = tk.Label(self, text="", font=("Arial", 18), bg="#A9DFBF")
+        self.flashcard_label.pack(pady=10)
+
+        self.flip_button = ttk.Button(self, text="Flip Flashcard", command=self.flip_flashcard, style="Accent.TButton")
+        self.flip_button.pack(pady=5)
+
+        self.back_button = ttk.Button(self, text="Back to Tasks", command=lambda: controller.show_frame("TaskPage"), style="Accent.TButton")
+        self.back_button.pack(pady=10)
+
+    def add_flashcard(self):
+        front = self.flashcard_front.get().strip()
+        back = self.flashcard_back.get().strip()
+        if front and back:
+            self.flashcards.append({"front": front, "back": back})
+            self.flashcard_front.set("")
+            self.flashcard_back.set("")
+            self.save_flashcards()
+        else:
+            messagebox.showerror("Invalid Input", "Please enter both front and back text.")
+
+    def show_flashcard(self):
+        if self.flashcards:
+            self.current_flashcard = self.flashcards[0]
+            self.flashcard_label.config(text=self.current_flashcard["front"])
+
+    def flip_flashcard(self):
+        if self.current_flashcard:
+            current_text = self.flashcard_label.cget("text")
+            if current_text == self.current_flashcard["front"]:
+                self.flashcard_label.config(text=self.current_flashcard["back"])
+            else:
+                self.flashcard_label.config(text=self.current_flashcard["front"])
+
+    def save_flashcards(self):
+        with open("flashcards.json", "w") as file:
+            json.dump(self.flashcards, file)
+
+    def load_flashcards(self):
+        try:
+            with open("flashcards.json", "r") as file:
+                self.flashcards = json.load(file)
+        except FileNotFoundError:
+            pass
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = TodoApp(root)
+    root.mainloop()
